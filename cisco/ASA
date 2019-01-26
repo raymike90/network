@@ -1,1 +1,350 @@
-this is abount cisco device configuration
+# CISCO ASA IPSEC VPN 配置手册 #
+------------------------------------
+1、设备初始化配置
+
+ciscoasa(config)#hostname ASA5520
+ASA5520(config)#int e0/0
+ASA5520(config-if)#nameif outside
+ASA5520(config-if)#security-level 0
+ASA5520(config-if)#ip add 172.16.2.1 255.255.255.0
+ASA5520(config-if)#no sh
+
+ASA5520(config)#int e0/1
+ASA5520(config-if)#nameif inside
+ASA5520(config-if)#security-level 100
+ASA5520(config-if)#ip add 192.168.20.254 255.255.255.0
+ASA5520(config-if)#no sh
+
+2、配置路由( 作用：保证VPN加/ 解密点之间能通信)
+ASA5520(config)#route outside 0.0.0.0 0.0.0.0 172.16.2.254
+
+3、配置NAT
+ASA5520(config)#access-list NONAT permit ip 192.168.20.0 255.255.255.0
+192.168.10.0 255.255.255.0 不进行NAT转换
+ASA5520(config)#nat (inside) 0 access-list NONATNAT 豁免技术
+ASA5520(config)#nat (inside) 1 192.168.20.0 255.255.255.0
+ASA5520(config)#global (outside) 1 interface
+
+4、配置ISAKMP/IKE 阶段1( 作用: 建立VPN的管理连接)
+
+1）配置ISAKMP/IKE 策略
+ASA5520(config)#crypto isakmp enable outside 启用ISAKMP协议
+ASA5520(config)#crypto isakmp policy 1 定义第一阶段ISAKMP/IKE 策略
+ASA5520(config-isakmp)#hash md5 哈希使用md5
+ASA5520(config-isakmp)#encryption 3des 加密方式使用3DES（对称）
+ASA5520(config-isakmp)#group 2 DH加密算法强度
+ASA5520(config-isakmp)#authentication pre-share 验证用预共享密钥
+
+2）配置预共享密钥
+ASA5520(config)#crypto isakmp key cisco123 address 192.168.1.2
+
+5、配置ISAKMP/IKE 阶段2( 作用: 建立VPN的数据连接)
+
+1) 、配置ACL定义VPN连接所保护的流量
+ASA5520(config)#access-list VPN permit ip 192.168.20.0 255.255.255.0 192.168.10.0 255.255.255.0
+2) 、定义Ipsec 传输集( 转换集)
+ASA5520(config)#crypto ipsec transform-set ESP-T esp-des esp-md5-hmac
+3）、配置crypto map 加密映射( 作用: 关联ACL和ipsec 传输集设置)
+ASA5520(config)#crypto map VPN-MAP 1 match address VPN
+ASA5520(config)#crypto map VPN-MAP 1 set peer 172.16.1.1 指定对方的加/ 解密点
+ASA5520(config)#crypto map VPN-MAP 1 set transform-set ESP-T
+
+4) 、crypto map 接口应用
+ASA5520(config)#crypto map VPN-MAP interface outside
+
+6、测试
+ASA防火墙VPN查看与排错命令：
+show vpn-sessiondb l2l 查看l2l vpn 的连接状态信息
+Show crypto map 显示crypto map 相关配置
+Show cyrpto isakmp sa 显示ISAKMP/IKE 阶段1 安全联盟SA---VPN 连接
+Show crypto ipsec sa 显示ISAKMP/IKE 阶段2 安全联盟SA
+
+7、抓包
+Troubleshooting:
+access-list tac permit ip host 192.168.190.2 any
+access-list tac permit ip any host 192.168.190.2
+capture test access-list tac interface test
+show capture test
+show asp drop 查看drop 丢包
+packet-tracer input inside icmp 192.168.1.123 8 0 192.168.100.2
+方向接口协议测试PC地址对端inside 接口地址
+
+
+
+
+
+
+
+
+
+
+CISCO ASA5520 IPSEC VPN 配置详解
+
+ASA5520配置步骤：
+
+ASA-VPN(config)# interface gigabitEthernet 0/2
+
+ASA-VPN(config-if)# nameif ipsecout
+
+ASA-VPN(config-if)# security-level 0
+
+ASA-VPN(config-if)#ip address 10.0.0.1 255.0.0.0
+
+ASA-VPN(config-if)# no shutdown
+
+//配置外网接口的别名、安全级别及ip地址并启用
+
+
+ASA-VPN(config)# interface gigabitEthernet 0/3
+
+ASA-VPN(config-if)# nameif ipsecin
+
+ASA-VPN(config-if)# security-level 100
+
+ASA-VPN(config-if)#ip address 192.168.0.1 255.255.255.0
+
+ASA-VPN(config-if)# no shutdown
+
+//配置内网接口的别名、安全级别及ip地址并启用
+
+
+ASA-VPN(config)# access-list ipsec_icmp extended permit icmp any any
+
+ASA-VPN(config)# access-group ipsec_icmp in interface ipsecout
+
+ASA-VPN(config)# access-group ipsec_icmp in interface ipsecin
+
+//创建访问列表，定义允许的数据流并应用到接口上
+
+
+ASA-VPN(config)# route ipsecout 0.0.0.0 0.0.0.0 10.0.0.1
+
+//设置默认静态路由
+
+IPSec的实现主要由两个阶段来完成：
+--第一阶段，双方协商安全连接，建立一个已通过身份鉴别和安全保护的通道。
+--第二阶段，安全协议用于保护数据的和信息的交换。
+
+IPSec有两个安全协议：AH和ESP
+AH主要用来对数据进行完整性校验和身份认证，ESP则提供机密性，数据完整性等安全服务。
+无论是AH还是ESP都有涉及到了加密算法和验证算法，它们都由SA指定。
+
+而它们的密钥有很多，这样就需要密钥管理机制ISAMKP （Internet密钥交换协议）
+
+第一阶段：
+
+ASA-VPN(config)# crypto isakmp policy 10 
+
+//启用并创建一个ISAKMP策略，并指定其优先级
+ASA-VPN(config-isakmp-policy)# encryption 3des
+
+//指定对称加密算法，有3des、des、aes等
+
+ASA-VPN(config-isakmp-policy)# hash md5
+
+//指定信息摘要算法，校验算法有sha、md5等
+
+ASA-VPN(config-isakmp-policy)# authentication pre-share
+
+//pre-share为预共享密钥， 一般指定这个，当然还有rsa-sig、pre-share
+
+ASA-VPN(config-isakmp-policy)# group 2
+
+//指定DH分组编号，1为768位，2为1024位
+
+ASA-VPN(config-isakmp-policy)# lifetime 86400
+
+//指定SA生存期
+
+ASA-VPN(config-isakmp-policy)# exit
+
+ASA-VPN(config)#crypto isakmp key 123456 address 1 0.0.0.1
+
+//ISAKMP中标识对方的ip,并指定123456为密码
+
+
+第二阶段：
+
+ASA-VPN(config)# crypto ipsec transform-set mytrans01 esp-3des esp-md5-hmac
+
+//创建变换集mystrans01，可以多个。esp-3des为对称加密算法，esp-sha-hmac为ipsec体系中esp协议的sha校验，esp-des为对称加密算法，esp-md5-hmac为ipsec体系中esp协议的md5校验。交换集主要是是用来定义数据加密和完整性校验用的算法
+
+
+ASA-VPN(config)# access-list ipsec-data permit ip 192.168.0.0 255.255.255.0 172.16.0.0 255.255.255.0
+
+//定义感兴趣的数据流
+
+ASA-VPN(config)# crypto map ipsec_map 10 match address ipsec-data
+
+//创建加密图，名称为ipsec_map，序列号为10 ，10和上面的policy 10没联系。匹配感兴趣的数据流，也是前面定义的ipsec-data
+ASA-VPN(config)# crypto map ipsec_map 10 set peer 10.0.0.1
+
+//指定对方的ip
+
+ASA-VPN(config)# crypto map ipsec_map 10 set transform-set mytrans01
+
+//指定的交换集为前面创建的mytrans01
+
+ASA-VPN(config)# crypto map ipsec_map 10 set pfs group2
+
+//向前密钥保护功能（可以不指定）
+
+ASA-VPN(config)# crypto map isakmp interfaceipsecout
+
+//加密图应用到接口ipsecout上
+
+ASA-VPN(config)# crypto isakmp enable ipsecout
+
+//在ipsecout上启用ISAKMP
+
+
+
+
+ASA配置抓取
+###################
+
+ASA5520-1# sh run
+: Saved
+:
+ASA Version 8.0(2)
+!
+hostname ASA5520-1
+domain-name cisco.com
+enable password 7esAUjZmKQSFDCZX level 1 encrypted
+enable password X8g.3L3EgPU.yIZN level 2 encrypted
+enable password QeFQohhGD0kg2jpZ level 3 encrypted
+enable password lDPOIP4W3Kg.9WUz level 4 encrypted
+enable password PsOsD.hl6jW/ZfcA level 5 encrypted
+enable password C0QJjUBG/QOHHI0B level 6 encrypted
+enable password wfuLGg.a7HJkv.ui level 7 encrypted
+enable password 9Dy6SycT7um/csF7 level 8 encrypted
+enable password 8SMMFW7K0EjdDzxA level 9 encrypted
+enable password v6gbFF5ayvbTRtPS level 10 encrypted
+enable password wW1ecuvBhNVAkFAc level 11 encrypted
+enable password w64tQs.9DhfrLSaw level 12 encrypted
+enable password IFk4dtTFkzpdt4fg level 13 encrypted
+enable password /d5QczWS2L5boF3z level 14 encrypted
+enable password QWpP64neo7pbRFKy encrypted
+names
+!
+interface Ethernet0/0
+ nameif inside
+ security-level 100
+ ip address 172.16.0.1 255.255.255.0
+!
+interface Ethernet0/1
+ nameif outside
+ security-level 0
+ ip address 1.1.1.1 255.255.255.0
+!
+interface Ethernet0/2
+ shutdown
+ no nameif
+ no security-level
+ no ip address
+!
+interface Ethernet0/3
+ shutdown
+ no nameif
+ no security-level
+ no ip address
+!
+interface Ethernet0/4
+ shutdown
+ no nameif
+ no security-level
+ no ip address
+!
+interface Ethernet0/5
+ shutdown
+ no nameif
+ no security-level
+ no ip address
+!
+passwd 2KFQnbNIdI.2KYOU encrypted
+boot config disk0:/.private/startup-config
+ftp mode passive
+dns server-group DefaultDNS
+ domain-name cisco.com
+access-list access extended permit icmp any any
+access-list access extended permit tcp any interface outside eq www
+access-list access extended permit tcp any interface outside eq 8080
+access-list access extended permit tcp any interface outside eq 3389
+access-list access extended permit tcp any interface outside eq ssh
+access-list access extended permit tcp any interface outside eq https
+access-list access extended permit tcp any interface outside eq ftp-data
+access-list access extended permit tcp any interface outside eq ftp
+access-list access extended permit tcp any interface outside eq telnet
+access-list access extended permit tcp any interface outside eq 138
+access-list access extended permit tcp any interface outside eq 145
+access-list access extended permit tcp any interface outside eq pop3
+access-list access extended permit tcp any interface outside eq 161
+access-list access extended permit tcp any interface outside eq 137
+access-list access extended permit tcp any interface outside eq netbios-ssn
+access-list access extended permit tcp any interface outside eq 445
+access-list no-nat extended permit ip 172.16.0.0 255.255.255.0 10.0.0.0 255.255.255.0
+pager lines 24
+mtu inside 1500
+mtu outside 1500
+no failover
+icmp unreachable rate-limit 1 burst-size 1
+asdm image disk0:/asdm-615.bin
+no asdm history enable
+arp timeout 14400
+global (outside) 1 interface
+nat (inside) 0 access-list no-nat
+nat (inside) 1 172.16.0.0 255.255.255.0
+static (inside,outside) tcp 1.1.1.1 3389 172.16.0.100 3389 netmask 255.255.255.255
+static (inside,outside) tcp 1.1.1.1 www 172.16.0.100 www netmask 255.255.255.255  dns
+static (inside,outside) tcp 1.1.1.1 telnet 172.16.0.100 telnet netmask 255.255.255.255  dns
+static (inside,outside) tcp 1.1.1.1 137 172.16.0.100 137 netmask 255.255.255.255
+static (inside,outside) tcp 1.1.1.1 138 172.16.0.100 138 netmask 255.255.255.255
+static (inside,outside) tcp 1.1.1.1 netbios-ssn 172.16.0.100 netbios-ssn netmask 255.255.255.255
+static (inside,outside) tcp 1.1.1.1 445 172.16.0.100 445 netmask 255.255.255.255
+access-group access in interface outside
+route outside 0.0.0.0 0.0.0.0 1.1.1.2 1
+timeout xlate 3:00:00
+timeout conn 1:00:00 half-closed 0:10:00 udp 0:02:00 icmp 0:00:02
+timeout sunrpc 0:10:00 h323 0:05:00 h225 1:00:00 mgcp 0:05:00 mgcp-pat 0:05:00
+timeout sip 0:30:00 sip_media 0:02:00 sip-invite 0:03:00 sip-disconnect 0:02:00
+timeout uauth 0:05:00 absolute
+dynamic-access-policy-record DfltAccessPolicy
+http server enable
+http 0.0.0.0 0.0.0.0 outside
+http 0.0.0.0 0.0.0.0 inside
+no snmp-server location
+no snmp-server contact
+snmp-server enable traps snmp authentication linkup linkdown coldstart
+crypto ipsec transform-set mytrans esp-des esp-md5-hmac
+crypto map mymap 10 match address no-nat
+crypto map mymap 10 set peer 1.1.1.2
+crypto map mymap 10 set transform-set mytrans
+crypto map mymap interface outside
+crypto isakmp enable outside
+crypto isakmp policy 1
+ authentication pre-share
+ encryption des
+ hash md5
+ group 2     
+ lifetime 86400
+no crypto isakmp nat-traversal
+telnet 0.0.0.0 0.0.0.0 inside
+telnet timeout 5
+ssh 0.0.0.0 0.0.0.0 inside
+ssh 0.0.0.0 0.0.0.0 outside
+ssh timeout 5
+ssh version 1
+console timeout 0
+threat-detection basic-threat
+threat-detection statistics access-list
+!
+!
+username admin password eY/fQXw7Ure8Qrz7 encrypted privilege 15
+username cisco password 3USUcOPFUiMCO4Jk encrypted
+tunnel-group 1.1.1.2 type ipsec-l2l
+tunnel-group 1.1.1.2 ipsec-attributes
+ pre-shared-key *
+prompt hostname context
+Cryptochecksum:abb5b8f817aa4ceeb4425e735a7c451e
+: end
+ASA5520-1# 
